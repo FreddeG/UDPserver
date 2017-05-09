@@ -29,6 +29,7 @@ typedef struct {
 
     bool fin;
     bool reset;
+    bool syn;
     uint64_t seq;
     uint64_t ack;
     uint16_t timeStamp;
@@ -54,6 +55,7 @@ void printPackage(Package pack)
 {
     printf("\n fin: %d", pack.fin);
     printf("\n reset: %d", pack.reset);
+    printf("\n syn: %d", pack.syn);
     printf("\n seq: %u", pack.seq);
     printf("\n ack: %u", pack.ack);
     printf("\n data: %c", pack.data);
@@ -64,14 +66,33 @@ void printPackage(Package pack)
 
 uint8_t viewPackage(Package pack)
 {
+
+    if(1) // checksum
+    {
+        if(pack.syn == true) return 1; // syn
+
+        if(pack.fin == true) return 4; // last package
+
+        if(pack.reset == true) return 5; // server resets connection
+
+        if(pack.data == '\0') return 2; // ack + seq, no data
+
+        if(pack.data != '\0') return 3; // ack + seq with data, package to read
+
+        printf("\n ERROR!");
+        exit(1);
+
+
+
+    }
+
     //checksum wrong return
     // 0 bad case, (checksum fail)
     // 1 syn (seq, no data, no ack)
-    return 1;
     // 2 ack (seq + ack, no data)
     // 3 data (seq + ack + data)
     // 4 fin (fin = true, rest doesn't matter)
-    // 5 error
+    // 5 reset
 
 }
 
@@ -79,6 +100,7 @@ void emptyPackage(Package *packToEmpty)
 {
     packToEmpty->fin = false;
     packToEmpty->reset = false;
+    packToEmpty->syn = false;
     packToEmpty->seq = 0;
     packToEmpty->ack = 0;
     packToEmpty->timeStamp = 0;
@@ -221,7 +243,7 @@ int currentState = INITCONNECT;
                     printf("\n Input package");
                     printPackage(inputBuf);
 
-                    if(viewPackage(inputBuf) == 0) // recieved syn, resend syn+ack
+                    if(viewPackage(inputBuf) == 1) // recieved syn, resend syn+ack
                     {
 
                         if (sendto(sock, &outputBuf, sizeof(Package), 0, (struct sockaddr*) &clientInfo, slen) == -1)
@@ -234,7 +256,7 @@ int currentState = INITCONNECT;
                         currentState = WAITINITCONNECT;
 
                     }
-                    else if(viewPackage(inputBuf) == 1) // recieved ack, correct!
+                    else if(viewPackage(inputBuf) == 2) // recieved ack, correct!
                     {
                         currentState = CONNECTED;
 
