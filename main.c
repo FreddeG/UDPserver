@@ -9,6 +9,8 @@
 #include<sys/socket.h>
 #include <unistd.h>
 #include <stdbool.h>
+#include <sys/select.h>
+
 
 
 #define BUFLEN 512  //Max length of buffer
@@ -35,17 +37,76 @@ typedef struct {
 } Package;
 
 
+typedef struct {
+
+    Package pack;
+    bool ack;
+
+} PackageList;
+
 void die(char *s)
 {
     perror(s);
     exit(1);
 }
 
+void printPackage(Package pack)
+{
+    printf("\n fin: %d", pack.fin);
+    printf("\n reset: %d", pack.reset);
+    printf("\n seq: %u", pack.seq);
+    printf("\n ack: %u", pack.ack);
+    printf("\n data: %c", pack.data);
+    printf("\n checksum: %u\n", pack.checkSum);
+
+}
+
+
+uint8_t viewPackage(Package pack)
+{
+    //checksum wrong return
+    // 0 bad case, (checksum fail)
+    // 1 syn (seq, no data, no ack)
+    return 1;
+    // 2 ack (seq + ack, no data)
+    // 3 data (seq + ack + data)
+    // 4 fin (fin = true, rest doesn't matter)
+    // 5 error
+
+}
+
+void emptyPackage(Package *packToEmpty)
+{
+    packToEmpty->fin = false;
+    packToEmpty->reset = false;
+    packToEmpty->seq = 0;
+    packToEmpty->ack = 0;
+    packToEmpty->timeStamp = 0;
+    packToEmpty->data = '\0';
+    packToEmpty->checkSum = 0;
+
+}
+
+uint64_t initSEQ(void)
+{
+
+    return 10;
+}
+
+uint16_t getTimeStamp(void)
+{
+    // make sure to compare absolute value between current time and timestamp, check if bigger than x minutes/seconds
+
+    // 0-3 min ok, 57-60 ok check values
+    return 0;
+}
+
 int main(void)
 {
     struct sockaddr_in serverInfo, clientInfo, AcceptedHost;
-    Package buf;
+    Package outputBuf, inputBuf;
     fd_set activeFdSet, readFdSet;
+    struct timeval timeout_t;
 
     int sock, i, slen = sizeof(clientInfo) , recv_len;
     //char buf[BUFLEN];
@@ -79,17 +140,46 @@ int currentState = INITCONNECT;
         switch (currentState) {
             case INITCONNECT:
                 readFdSet = activeFdSet;
+                // lägg in time envl
+
+                timeout_t.tv_sec = 10;
+                timeout_t.tv_usec = 0;
 
 
-                if (select(FD_SETSIZE, &readFdSet, NULL, NULL, NULL) < 0) { // blocking, waits until one the FD is set to ready, will keep the ready ones in readFdSet
+                if (select(FD_SETSIZE, &readFdSet, NULL, NULL, &timeout_t) < 0) { // blocking, waits until one the FD is set to ready, will keep the ready ones in readFdSet
                     perror("Select failed\n");
                     exit(EXIT_FAILURE);
                 }
                 else if(FD_ISSET(sock, &readFdSet))
                 {
-                    if ((recv_len = recvfrom(sock, &buf, sizeof(Package), 0, (struct sockaddr *) &clientInfo, &slen)) == -1) {
+
+                    if ((recvfrom(sock, &inputBuf, sizeof(Package), 0, (struct sockaddr *) &clientInfo, &slen)) == -1) {
                         // perror(recvfrom());
                         die("recvfrom()");
+                    }
+                    printf("\n Inputpackage");
+                    printPackage(inputBuf);
+
+                    if(viewPackage(inputBuf) == 1) // syn
+                    {
+                        emptyPackage(&outputBuf);
+                        outputBuf.seq = initSEQ();
+                        outputBuf.ack = inputBuf.seq + 1;
+
+                        if (sendto(sock, &outputBuf, sizeof(Package), 0, (struct sockaddr*) &clientInfo, slen) == -1)
+                        {
+                            die("sendto()");
+                        }
+
+                        printf("\n Output package");
+                        printPackage(outputBuf);
+
+                        currentState = WAITINITCONNECT;
+
+                    }
+                    else
+                    {
+                       //
                     }
 
 
@@ -107,12 +197,81 @@ int currentState = INITCONNECT;
             case WAITINITCONNECT:
 
 
+
+                printf("\nReached WAITINITCONNECT!");
+
+                readFdSet = activeFdSet;
+                // lägg in time envl
+
+                timeout_t.tv_sec = 3;
+                timeout_t.tv_usec = 0;
+
+
+                if (select(FD_SETSIZE, &readFdSet, NULL, NULL, &timeout_t) < 0) { // blocking, waits until one the FD is set to ready, will keep the ready ones in readFdSet
+                    perror("Select failed\n");
+                    exit(EXIT_FAILURE);
+                }
+                else if(FD_ISSET(sock, &readFdSet))
+                {
+
+                    if ((recvfrom(sock, &inputBuf, sizeof(Package), 0, (struct sockaddr *) &clientInfo, &slen)) == -1) {
+                        // perror(recvfrom());
+                        die("recvfrom()");
+                    }
+                    printf("\n Input package");
+                    printPackage(inputBuf);
+
+                    if(viewPackage(inputBuf) == 0) // recieved syn, resend syn+ack
+                    {
+
+                        if (sendto(sock, &outputBuf, sizeof(Package), 0, (struct sockaddr*) &clientInfo, slen) == -1)
+                        {
+                            die("sendto()");
+                        }
+                        printf("\n Output package");
+                        printPackage(outputBuf);
+
+                        currentState = WAITINITCONNECT;
+
+                    }
+                    else if(viewPackage(inputBuf) == 1) // recieved ack, correct!
+                    {
+                        currentState = CONNECTED;
+
+                    }
+                    else
+                    {
+                        //
+                    }
+
+
+                    // break
+                }
+                else // resend if timeout, syn+ack lost?
+                {
+                    if (sendto(sock, &outputBuf, sizeof(Package), 0, (struct sockaddr*) &clientInfo, slen) == -1)
+                    {
+                        die("sendto()");
+                    }
+                    printf("\n Output package");
+                    printPackage(outputBuf);
+
+                    break;
+
+                }
+                //currentState = WAITINITCONNECT;
+
+
+
                 break;
             case WAITINGCONFIRMCONNECT:
+                // does not exist on host
 
                 break;
 
             case CONNECTED:
+                printf("\n reached connected!");
+                getchar();
 
                 break;
             case INITCLOSE:
