@@ -63,36 +63,40 @@ void printPackage(Package pack)
 
 }
 
+// checks the type
+// 0 bad case, (checksum fail)
+// 1 syn (seq, no data, no ack)
+// 2 ack (seq + ack, no data)
+// 3 data (seq + ack + data)
+// 4 fin (fin = true, rest doesn't matter)
+// 5 reset of the package, and returns a corresponding value
 
-uint8_t viewPackage(Package pack)
+uint8_t packageType(Package pack)
 {
+    if(pack.syn == true) return 1; // syn
 
-    if(1) // checksum
-    {
-        if(pack.syn == true) return 1; // syn
+    if(pack.fin == true) return 4; // last package
 
-        if(pack.fin == true) return 4; // last package
+    if(pack.reset == true) return 5; // server resets connection
 
-        if(pack.reset == true) return 5; // server resets connection
+    if(pack.data == '\0') return 2; // ack + seq, no data
 
-        if(pack.data == '\0') return 2; // ack + seq, no data
+    if(pack.data != '\0') return 3; // ack + seq with data, package to read
 
-        if(pack.data != '\0') return 3; // ack + seq with data, package to read
+    printf("\n ERROR!");
+    exit(1);
 
-        printf("\n ERROR!");
-        exit(1);
+}
+
+//checks that timestamp and CRC is good, returns packagetype if success, else 0
+uint8_t errorCheckPackage(Package pack)
+{
+    //checks crc/checksum
+
+        // checks timestamp
 
 
 
-    }
-
-    //checksum wrong return
-    // 0 bad case, (checksum fail)
-    // 1 syn (seq, no data, no ack)
-    // 2 ack (seq + ack, no data)
-    // 3 data (seq + ack + data)
-    // 4 fin (fin = true, rest doesn't matter)
-    // 5 reset
 
 }
 
@@ -122,6 +126,8 @@ uint16_t getTimeStamp(void)
     // 0-3 min ok, 57-60 ok check values
     return 0;
 }
+
+
 
 int main(void)
 {
@@ -179,10 +185,10 @@ int currentState = INITCONNECT;
                         // perror(recvfrom());
                         die("recvfrom()");
                     }
-                    printf("\n Inputpackage");
+                    printf("\n Input package, first syn");
                     printPackage(inputBuf);
 
-                    if(viewPackage(inputBuf) == 1) // syn
+                    if(packageType(inputBuf) == 1) // syn
                     {
                         emptyPackage(&outputBuf);
                         outputBuf.seq = initSEQ();
@@ -193,7 +199,7 @@ int currentState = INITCONNECT;
                             die("sendto()");
                         }
 
-                        printf("\n Output package");
+                        printf("\n Output package, output first syn + ack"); // no syn state but is no data, only seq + ack
                         printPackage(outputBuf);
 
                         currentState = WAITINITCONNECT;
@@ -220,7 +226,7 @@ int currentState = INITCONNECT;
 
 
 
-                printf("\nReached WAITINITCONNECT!");
+                printf("\nReached WAITINITCONNECT!, sent syn + ack to client");
 
                 readFdSet = activeFdSet;
                 // lägg in time envl
@@ -240,24 +246,25 @@ int currentState = INITCONNECT;
                         // perror(recvfrom());
                         die("recvfrom()");
                     }
-                    printf("\n Input package");
+                    printf("\n Input package, possibly ack on syn +ack ");
                     printPackage(inputBuf);
 
-                    if(viewPackage(inputBuf) == 1) // recieved syn, resend syn+ack
+                    if(packageType(inputBuf) == 1) // recieved syn, resend syn+ack
                     {
 
                         if (sendto(sock, &outputBuf, sizeof(Package), 0, (struct sockaddr*) &clientInfo, slen) == -1)
                         {
                             die("sendto()");
                         }
-                        printf("\n Output package");
+                        printf("\n Output package, was not ack on syn + ack, resending syn+ack");
                         printPackage(outputBuf);
 
-                        currentState = WAITINITCONNECT;
+                        //currentState = WAITINITCONNECT;
 
                     }
-                    else if(viewPackage(inputBuf) == 2) // recieved ack, correct!
+                    else if(packageType(inputBuf) == 2) // recieved ack, correct!
                     {
+                        printf("\n Input package was ack on syn+ack, success!");
                         currentState = CONNECTED;
 
                     }
@@ -294,6 +301,12 @@ int currentState = INITCONNECT;
             case CONNECTED:
                 printf("\n reached connected!");
                 getchar();
+
+                // put in to linked list if
+                //  seq is bigger than last acked
+                //  checksum is good
+                //
+                // puts everything in linked list, removes the element and prints to file when ack is sent
 
                 break;
             case INITCLOSE:
