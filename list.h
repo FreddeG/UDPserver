@@ -6,27 +6,10 @@
 #define UDPSERVER_LIST_H
 
 
-#include<stdio.h>
-#include<string.h>
-#include<stdlib.h>
-#include<arpa/inet.h>
-#include<sys/socket.h>
-#include <unistd.h>
-#include <stdbool.h>
-#include <stdint.h>
+#include "Generic.h"
 
 //typedef int Data;
-typedef struct {
 
-    bool fin;
-    bool reset;
-    bool syn;
-    uint64_t seq;
-    uint64_t ack;
-    uint16_t timeStamp;
-    char data;
-    uint64_t checkSum;
-} Package;
 /* 1. Struct-definitioner ********************************/
 /*                                                       */
 /* Lägg era struct-definitioner nedan                    */
@@ -37,7 +20,6 @@ typedef struct {
 typedef struct node
 {
     Package data;
-    bool ACK;
     struct node *Next;
 } Node;
 
@@ -78,11 +60,9 @@ void addNodeFirst(List *list, Package dataInput);
 int numberOfNodes(List *list);
 int IsListEmpty(List *list);
 void printList(List *mylist);
-
+Node *removeBySEQRecursive(Node *current, uint64_t lowestSEQ);
 
 
 void printPackage(Package pack);
-
-
 
 #endif //UDPCLIENT_LIST_H

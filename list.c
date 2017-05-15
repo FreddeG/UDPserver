@@ -155,37 +155,69 @@ void printList(List *mylist)
 
 }
 
-void swap(Node )
-
-void sortListBySeq(List *mylist)
+void sortBySeq(List *list) // should not be used
 {
-    void bubbleSort(struct node *start)
+
+    // Don't try to sort empty or single-node lists
+    if (list->head == NULL || list->head->Next == NULL) return;
+    Node *current;
+    Node *next;
+    Node *previous;
+
+    int num_nodes = numberOfNodes(list);
+    int i;
+
+    for (i = 0; i < num_nodes; i++)
     {
-        int swapped, i;
-        struct node *ptr1;
-        struct node *lptr = NULL;
+        current = list->head;
+        next = current->Next;
+        previous = NULL;
 
-        /* Checking for empty list */
-        if (ptr1 == NULL)
-            return;
-
-        do
+        while (next != NULL)
         {
-            swapped = 0;
-            ptr1 = start;
-
-            while (ptr1->next != lptr)
+            if (current->data.seq > next->data.seq) // if next is smaller than current, wrong order
             {
-                if (ptr1->data > ptr1->next->data)
+                if (current == list->head) // we need to change the list->head as it is not enough to move them around, we need to change the head as well
                 {
-                    swap(ptr1, ptr1->next);
-                    swapped = 1;
+                    list->head = next;
                 }
-                ptr1 = ptr1->next;
-            }
-            lptr = ptr1;
-        }
-        while (swapped);
-    }
+                else
+                {
+                    previous->Next = next; // here we don't need to change the head, just make sure previous connects instead
+                }
 
+                current->Next = next->Next;
+                next->Next = current;
+
+                previous = next;
+                next = current->Next;
+            }
+            else // keep in mind, we just switched our previous and next, this the only place where we progress in the list
+            {
+                previous = current;
+                current = current->Next;
+                next = current->Next;
+            }
+
+        }
+    }
 }
+
+// use list.head = removebySEQRecursive(list.head, SEQ)
+
+Node *removeBySEQRecursive(Node *current, uint64_t lowestSEQ) // this function will pass its original current node back to itself if it is not the ID we are looking for
+{
+    if (current == NULL) return NULL;
+
+    if (current->data.seq == lowestSEQ) // should only be 1 of the ID in the system, we are done here
+    {
+        Node *temp = current->Next;
+        free(current);
+        return temp; // if we are at the end of the list we will return NULL as it is current->Next
+    }
+    current->Next = removeBySEQRecursive(current->Next, lowestSEQ); // we check next Node, will return itself to itself if everything is in order, else it will pass the next one above while freeing,
+    return current; // we return the Node pointer if nothing was different
+}
+
+
+

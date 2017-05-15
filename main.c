@@ -14,7 +14,7 @@
 */
 
 #include "list.h"
-
+#include "Generic.h"
 
 
 #define BUFLEN 512  //Max length of buffer
@@ -28,6 +28,8 @@
 #define INITCLOSE 4
 #define WAITINGCLOSE 5
 #define CLOSED 6
+
+#define WINDOWSIZE 3
 
 /*
 typedef struct {
@@ -43,6 +45,7 @@ typedef struct {
 } Package;
 */
 
+/*
 typedef struct {
 
     Package pack;
@@ -132,7 +135,7 @@ uint16_t getTimeStamp(void)
     return 0;
 }
 
-
+*/
 
 int main(void)
 {
@@ -140,6 +143,7 @@ int main(void)
     Package outputBuf, inputBuf;
     fd_set activeFdSet, readFdSet;
     struct timeval timeout_t;
+    uint64_t seqCounter;
 
     List list;
     list.head = NULL;
@@ -180,7 +184,7 @@ int currentState = INITCONNECT;
                 readFdSet = activeFdSet;
                 // lägg in time envl
 
-                timeout_t.tv_sec = 10;
+                timeout_t.tv_sec = 120;
                 timeout_t.tv_usec = 0;
 
 
@@ -198,11 +202,11 @@ int currentState = INITCONNECT;
                     printf("\n Input package, first syn");
                     printPackage(inputBuf);
 
-                    if(packageType(inputBuf) == 1) // syn
+                    if(viewPackage(inputBuf) == 1) // syn
                     {
                         emptyPackage(&outputBuf);
                         outputBuf.seq = initSEQ();
-                        outputBuf.ack = inputBuf.seq + 1;
+                        outputBuf.ack = inputBuf.seq;
 
                         if (sendto(sock, &outputBuf, sizeof(Package), 0, (struct sockaddr*) &clientInfo, slen) == -1)
                         {
@@ -259,7 +263,7 @@ int currentState = INITCONNECT;
                     printf("\n Input package, possibly ack on syn +ack ");
                     printPackage(inputBuf);
 
-                    if(packageType(inputBuf) == 1) // recieved syn, resend syn+ack
+                    if(viewPackage(inputBuf) == 1) // recieved syn, resend syn+ack
                     {
 
                         if (sendto(sock, &outputBuf, sizeof(Package), 0, (struct sockaddr*) &clientInfo, slen) == -1)
@@ -272,9 +276,12 @@ int currentState = INITCONNECT;
                         //currentState = WAITINITCONNECT;
 
                     }
-                    else if(packageType(inputBuf) == 2) // recieved ack, correct!
+                    else if(viewPackage(inputBuf) == 2) // recieved ack, correct!
                     {
+                        //Check if ack correct
+                        seqCounter = outputBuf.ack;
                         printf("\n Input package was ack on syn+ack, success!");
+
                         currentState = CONNECTED;
 
                         if(fp == NULL)
@@ -323,6 +330,66 @@ int currentState = INITCONNECT;
 
             case CONNECTED:
                 printf("\n reached connected!");
+
+
+                timeout_t.tv_sec = 120; // Time that we listen for acks b4 resending the window.
+                timeout_t.tv_usec = 0;
+                if (select(FD_SETSIZE, &readFdSet, NULL, NULL, &timeout_t) < 0) { // blocking, waits until one the FD is set to ready, will keep the ready ones in readFdSet
+                    perror("Select failed\n");
+                    exit(EXIT_FAILURE);
+                }
+                else if(FD_ISSET(sock, &readFdSet)) // if true we got a package so read it.
+                {
+                    if ((recvfrom(sock, &inputBuf, sizeof(Package), 0, (struct sockaddr *) &clientInfo, &slen)) ==
+                        -1)
+                    {
+                        // perror(recvfrom());
+                        die("recvfrom()");
+                    }
+
+                    if(viewPackage(inputBuf) == 3) // ack + seq + data
+                    {
+                        // Oldpack! Discard!
+                        if(list.head->data.seq < inputBuf.seq)
+                        {
+                            if(list.head->data.seq + WINDOWSIZE <= inputBuf.ack)// Should not happen!
+                            {
+                                printf("\nDebug: List exeeded");
+                                getchar();
+                                exit(1);
+                            }
+
+                            while(list.head->data.seq <= inputBuf.ack)
+                            {
+                                removeFirst(&list);
+                              //  if (endFlag == false)
+                                {
+
+                                }
+                                if(list.head == NULL)
+                                {
+                                    break;
+                                }
+                            }
+                        }
+                        else
+                        {
+                            //Do nothing
+                        }
+
+                    }
+
+                }
+                else
+                {
+                    // removes list
+                    printf("\MAJOR TIMEOUT! client unresponsive\n");
+
+                    if(fp != NULL) close(fp);
+                    removeList(&list);
+                    currentState = CLOSED;
+                    // big timeout
+                }
 
 
 
