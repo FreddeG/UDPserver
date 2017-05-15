@@ -1,6 +1,7 @@
 /*
     Simple udp server
 */
+/*
 #include<stdio.h> //printf
 #include<stdint.h>
 #include<string.h> //memset
@@ -10,6 +11,9 @@
 #include <unistd.h>
 #include <stdbool.h>
 #include <sys/select.h>
+*/
+
+#include "list.h"
 
 
 
@@ -25,6 +29,7 @@
 #define WAITINGCLOSE 5
 #define CLOSED 6
 
+/*
 typedef struct {
 
     bool fin;
@@ -36,7 +41,7 @@ typedef struct {
     char data;
     uint64_t checkSum;
 } Package;
-
+*/
 
 typedef struct {
 
@@ -135,6 +140,11 @@ int main(void)
     Package outputBuf, inputBuf;
     fd_set activeFdSet, readFdSet;
     struct timeval timeout_t;
+
+    List list;
+    list.head = NULL;
+
+    FILE *fp = NULL;
 
     int sock, i, slen = sizeof(clientInfo) , recv_len;
     //char buf[BUFLEN];
@@ -267,6 +277,19 @@ int currentState = INITCONNECT;
                         printf("\n Input package was ack on syn+ack, success!");
                         currentState = CONNECTED;
 
+                        if(fp == NULL)
+                        {
+                            fp = fopen ("file.txt", "w");
+                        }
+                        else
+                        {
+                            return 0; // solve loop somehow to exit when EOF is found
+                        }
+                        if(fp == NULL) // error
+                        {
+                            die("fopen");
+                        }
+
                     }
                     else
                     {
@@ -300,13 +323,35 @@ int currentState = INITCONNECT;
 
             case CONNECTED:
                 printf("\n reached connected!");
-                getchar();
+
+
+
+
+
+                if ((recvfrom(sock, &inputBuf, sizeof(Package), 0, (struct sockaddr *) &clientInfo, &slen)) == -1) {
+                    // perror(recvfrom());
+                    die("recvfrom()");
+                }
+                // check if good package
+                addNodeLast(&list, inputBuf);
+                // check if send ack
+                if(1) // if waited for ack
+                {
+                    //write to file
+                    // ack this this package
+                    //remove this node based on lowest ack
+
+
+                }
 
                 // put in to linked list if
                 //  seq is bigger than last acked
                 //  checksum is good
                 //
                 // puts everything in linked list, removes the element and prints to file when ack is sent
+
+                printList(&list);
+                getchar();
 
                 break;
             case INITCLOSE:
