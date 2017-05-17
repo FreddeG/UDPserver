@@ -143,10 +143,13 @@ int main(void)
     Package outputBuf, inputBuf;
     fd_set activeFdSet, readFdSet;
     struct timeval timeout_t;
-    uint64_t seqCounter;
+    uint64_t incLowestSeq;
 
     List list;
     list.head = NULL;
+
+    List database;
+    database.head = NULL;
 
     FILE *fp = NULL;
 
@@ -205,8 +208,12 @@ int currentState = INITCONNECT;
                     if(viewPackage(inputBuf) == 1) // syn
                     {
                         emptyPackage(&outputBuf);
-                        outputBuf.seq = initSEQ();
+                        //outputBuf.seq = initSEQ(); // inputseq. not for incoming!!
+                        outputBuf.seq = 0;
                         outputBuf.ack = inputBuf.seq;
+                        incLowestSeq = inputBuf.seq + 1;
+
+                        outputBuf.checkSum = checksum(outputBuf);
 
                         if (sendto(sock, &outputBuf, sizeof(Package), 0, (struct sockaddr*) &clientInfo, slen) == -1)
                         {
@@ -279,32 +286,43 @@ int currentState = INITCONNECT;
                     else if(viewPackage(inputBuf) == 2) // recieved ack, correct!
                     {
                         //Check if ack correct
-                        seqCounter = outputBuf.ack;
-                        printf("\n Input package was ack on syn+ack, success!");
-
-                        currentState = CONNECTED;
-
-                        if(fp == NULL)
+                        if(inputBuf.ack != outputBuf.seq || inputBuf.seq != incLowestSeq)
                         {
-                            fp = fopen ("file.txt", "w");
+                            printf("\n ack on ack returned from client! seqcounter != package.ack\n");
+                            // do something more?
+                            break;
                         }
                         else
                         {
-                            return 0; // solve loop somehow to exit when EOF is found
+                            //incLowestSeq = outputBuf.ack;
+                            incLowestSeq++;
+                            printf("\n Input package was ack on syn+ack, success!");
+
+                            currentState = CONNECTED;
+
+                            if(fp == NULL)
+                            {
+                                fp = fopen ("file.txt", "w");
+                            }
+                            else
+                            {
+                                return 0; // solve loop somehow to exit when EOF is found
+                            }
+                            if(fp == NULL) // error
+                            {
+                                die("fopen");
+                            }
                         }
-                        if(fp == NULL) // error
-                        {
-                            die("fopen");
-                        }
+
 
                     }
                     else
                     {
-                        //
+                        // weird package?
                     }
 
 
-                    // break
+                    // break (why is this here?)
                 }
                 else // resend if timeout, syn+ack lost?
                 {
@@ -346,35 +364,65 @@ int currentState = INITCONNECT;
                         // perror(recvfrom());
                         die("recvfrom()");
                     }
+                    printf("\n Incoming package");
+                    printPackage(inputBuf);
 
-                    if(viewPackage(inputBuf) == 3) // ack + seq + data
+                    if(viewPackage(inputBuf) == 3) // ack + seq + data (we are not using checksum)
                     {
                         // Oldpack! Discard!
-                        if(list.head->data.seq < inputBuf.seq)
+                        if(incLowestSeq == inputBuf.seq)  // first expected
                         {
+                            /*
                             if(list.head->data.seq + WINDOWSIZE <= inputBuf.ack)// Should not happen!
                             {
                                 printf("\nDebug: List exeeded");
                                 getchar();
                                 exit(1);
                             }
+                             */
 
-                            while(list.head->data.seq <= inputBuf.ack)
+                            // send ack
+                            //outputBuf.seq
+                            addNodeLast(&database, inputBuf); // save to file
+
+                            outputBuf.ack = inputBuf.seq;
+                            outputBuf.checkSum = 0;
+                            outputBuf.checkSum = checksum(outputBuf);
+
+                            if (sendto(sock, &outputBuf, sizeof(Package), 0, (struct sockaddr*) &clientInfo, slen) == -1)
                             {
-                                removeFirst(&list);
-                              //  if (endFlag == false)
-                                {
-
-                                }
-                                if(list.head == NULL)
-                                {
-                                    break;
-                                }
+                                die("sendto()");
                             }
+                            printf("\n Sending ack for expected SEQ");
+                            printPackage(outputBuf);
+
+
+                            list.head = ackBySEQRecursive(list.head, &incLowestSeq, sock, clientInfo, &database);
+
+
+
+
                         }
-                        else
+                        else if (incLowestSeq > inputBuf.seq) // old package
                         {
-                            //Do nothing
+                            //fix resend last outputbuff
+                            if (sendto(sock, &outputBuf, sizeof(Package), 0, (struct sockaddr*) &clientInfo, slen) == -1)
+                            {
+                                die("sendto()");
+                            }
+                            printf("\n Recieved old SEQ Output package");
+                            printPackage(outputBuf);
+                        }
+                        else if(incLowestSeq + WINDOWSIZE + 1 > inputBuf.seq) // package in span
+                        {
+                            addNodeLast(&list, inputBuf);
+
+                        }
+                        else // unmeant condition
+                        {
+                            printf("WEIRD CONDITION IN CONNECTED! Packages seq is too big");
+                            printList(&database);
+                            return 1;
                         }
 
                     }
@@ -392,33 +440,7 @@ int currentState = INITCONNECT;
                 }
 
 
-
-
-
-                if ((recvfrom(sock, &inputBuf, sizeof(Package), 0, (struct sockaddr *) &clientInfo, &slen)) == -1) {
-                    // perror(recvfrom());
-                    die("recvfrom()");
-                }
-                // check if good package
-                addNodeLast(&list, inputBuf);
-                // check if send ack
-                if(1) // if waited for ack
-                {
-                    //write to file
-                    // ack this this package
-                    //remove this node based on lowest ack
-
-
-                }
-
-                // put in to linked list if
-                //  seq is bigger than last acked
-                //  checksum is good
-                //
-                // puts everything in linked list, removes the element and prints to file when ack is sent
-
-                printList(&list);
-                getchar();
+               // printList(&list);
 
                 break;
             case INITCLOSE:

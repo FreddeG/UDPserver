@@ -60,7 +60,7 @@ void addNodeFirst(List *list, Package dataInput);
 int numberOfNodes(List *list);
 int IsListEmpty(List *list);
 void printList(List *mylist);
-Node *removeBySEQRecursive(Node *current, uint64_t lowestSEQ);
+Node *ackBySEQRecursive(Node *current, uint64_t *lowestSEQ, int sock, struct sockaddr_in clientInfo, List* database);
 
 
 void printPackage(Package pack);

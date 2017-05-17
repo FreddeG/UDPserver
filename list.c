@@ -1,4 +1,5 @@
 #include "list.h"
+#include "Generic.h"
 
 
 /* Skriv era funktionsimplementationer för interfacet till er länkade lista här 
@@ -204,18 +205,44 @@ void sortBySeq(List *list) // should not be used
 }
 
 // use list.head = removebySEQRecursive(list.head, SEQ)
+// a) checks if to be removed
+// b) writes ack to client
+// c) writes package to database
+// d)
 
-Node *removeBySEQRecursive(Node *current, uint64_t lowestSEQ) // this function will pass its original current node back to itself if it is not the ID we are looking for
+
+
+Node *ackBySEQRecursive(Node *current, uint64_t *lowestSEQ, int sock, struct sockaddr_in clientInfo, List* database) // this function will pass its original current node back to itself if it is not the ID we are looking for
 {
     if (current == NULL) return NULL;
 
-    if (current->data.seq == lowestSEQ) // should only be 1 of the ID in the system, we are done here
+    if (current->data.seq == *lowestSEQ)
     {
+        Package outputBuf;
+        emptyPackage(&outputBuf);
+
+
+
+       //outputBuf.seq
+
+        outputBuf.ack = *lowestSEQ;
+        outputBuf.checkSum = 0;
+        outputBuf.checkSum = checksum(outputBuf);
+
+
+        if (sendto(sock, &outputBuf, sizeof(Package), 0, (struct sockaddr*) &clientInfo,  sizeof(clientInfo)) == -1)
+        {
+            die("sendto()");
+        }
+
+        *lowestSEQ = *lowestSEQ + 1; // next expected seq
+        addNodeLast(database, current->data); // save to file
+
         Node *temp = current->Next;
         free(current);
-        return temp; // if we are at the end of the list we will return NULL as it is current->Next
+        return ackBySEQRecursive(temp, lowestSEQ, sock, clientInfo, database); // if we are at the end of the list we will return NULL as it is current->Next
     }
-    current->Next = removeBySEQRecursive(current->Next, lowestSEQ); // we check next Node, will return itself to itself if everything is in order, else it will pass the next one above while freeing,
+    current->Next = ackBySEQRecursive(current->Next, lowestSEQ, sock, clientInfo, database); // we check next Node, will return itself to itself if everything is in order, else it will pass the next one above while freeing,
     return current; // we return the Node pointer if nothing was different
 }
 
