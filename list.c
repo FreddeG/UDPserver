@@ -212,7 +212,7 @@ void sortBySeq(List *list) // should not be used
 
 
 
-Node *ackBySEQRecursive(Node *current, uint64_t *lowestSEQ, int sock, struct sockaddr_in clientInfo, List* database) // this function will pass its original current node back to itself if it is not the ID we are looking for
+Node *ackBySEQRecursive(Node *current, uint64_t *lowestSEQ, int sock, struct sockaddr_in clientInfo, List* database, uint64_t *outSeq) // this function will pass its original current node back to itself if it is not the ID we are looking for
 {
     if (current == NULL) return NULL;
 
@@ -226,8 +226,11 @@ Node *ackBySEQRecursive(Node *current, uint64_t *lowestSEQ, int sock, struct soc
        //outputBuf.seq
 
         outputBuf.ack = *lowestSEQ;
+        outputBuf.seq = *outSeq;
+        *outSeq = *outSeq + 1;
         outputBuf.checkSum = 0;
         outputBuf.checkSum = checksum(outputBuf);
+
 
 
         if (sendto(sock, &outputBuf, sizeof(Package), 0, (struct sockaddr*) &clientInfo,  sizeof(clientInfo)) == -1)
@@ -235,14 +238,18 @@ Node *ackBySEQRecursive(Node *current, uint64_t *lowestSEQ, int sock, struct soc
             die("sendto()");
         }
 
+        printPackage(outputBuf);
+
         *lowestSEQ = *lowestSEQ + 1; // next expected seq
+        printf("\n sending ack from ackbyseqrecursive! lowestSeq is %d\n", *lowestSEQ);
+
         addNodeLast(database, current->data); // save to file
 
         Node *temp = current->Next;
         free(current);
-        return ackBySEQRecursive(temp, lowestSEQ, sock, clientInfo, database); // if we are at the end of the list we will return NULL as it is current->Next
+        return ackBySEQRecursive(temp, lowestSEQ, sock, clientInfo, database, outSeq); // if we are at the end of the list we will return NULL as it is current->Next
     }
-    current->Next = ackBySEQRecursive(current->Next, lowestSEQ, sock, clientInfo, database); // we check next Node, will return itself to itself if everything is in order, else it will pass the next one above while freeing,
+    current->Next = ackBySEQRecursive(current->Next, lowestSEQ, sock, clientInfo, database, outSeq); // we check next Node, will return itself to itself if everything is in order, else it will pass the next one above while freeing,
     return current; // we return the Node pointer if nothing was different
 }
 

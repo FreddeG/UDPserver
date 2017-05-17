@@ -144,7 +144,7 @@ int main(void)
     fd_set activeFdSet, readFdSet;
     struct timeval timeout_t;
     uint64_t incLowestSeq;
-
+    uint64_t outSeq;
     List list;
     list.head = NULL;
 
@@ -208,8 +208,8 @@ int currentState = INITCONNECT;
                     if(viewPackage(inputBuf) == 1) // syn
                     {
                         emptyPackage(&outputBuf);
-                        //outputBuf.seq = initSEQ(); // inputseq. not for incoming!!
-                        outputBuf.seq = 0;
+                        outputBuf.seq = initSEQ() -895034580135; // just for some variation in seq number
+                        outSeq = outputBuf.seq + 1;
                         outputBuf.ack = inputBuf.seq;
                         incLowestSeq = inputBuf.seq + 1;
 
@@ -350,7 +350,7 @@ int currentState = INITCONNECT;
                 printf("\n reached connected!");
 
 
-                timeout_t.tv_sec = 120; // Time that we listen for acks b4 resending the window.
+                timeout_t.tv_sec = 30; // Time that we listen for acks b4 resending the window.
                 timeout_t.tv_usec = 0;
                 if (select(FD_SETSIZE, &readFdSet, NULL, NULL, &timeout_t) < 0) { // blocking, waits until one the FD is set to ready, will keep the ready ones in readFdSet
                     perror("Select failed\n");
@@ -369,9 +369,10 @@ int currentState = INITCONNECT;
 
                     if(viewPackage(inputBuf) == 3) // ack + seq + data (we are not using checksum)
                     {
-                        // Oldpack! Discard!
+
                         if(incLowestSeq == inputBuf.seq)  // first expected
                         {
+                            incLowestSeq++;
                             /*
                             if(list.head->data.seq + WINDOWSIZE <= inputBuf.ack)// Should not happen!
                             {
@@ -384,10 +385,12 @@ int currentState = INITCONNECT;
                             // send ack
                             //outputBuf.seq
                             addNodeLast(&database, inputBuf); // save to file
-
+                            outputBuf.seq = outSeq;
+                            outSeq++;
                             outputBuf.ack = inputBuf.seq;
                             outputBuf.checkSum = 0;
                             outputBuf.checkSum = checksum(outputBuf);
+
 
                             if (sendto(sock, &outputBuf, sizeof(Package), 0, (struct sockaddr*) &clientInfo, slen) == -1)
                             {
@@ -397,7 +400,7 @@ int currentState = INITCONNECT;
                             printPackage(outputBuf);
 
 
-                            list.head = ackBySEQRecursive(list.head, &incLowestSeq, sock, clientInfo, &database);
+                            list.head = ackBySEQRecursive(list.head, &incLowestSeq, sock, clientInfo, &database, &outSeq);
 
 
 
@@ -426,12 +429,28 @@ int currentState = INITCONNECT;
                         }
 
                     }
+                    else if(viewPackage(inputBuf) == 4)
+                    {
+                        if(outputBuf.ack + 1 == inputBuf.seq)
+                        {
+                            //close file
+
+                            printf("\n FIN RECIEVED!");
+                            currentState = INITCLOSE;
+                        }
+                        else
+                        {
+                            printf("\n FIN had wrong SEQ?");
+                        }
+
+                    }
 
                 }
                 else
                 {
                     // removes list
                     printf("\MAJOR TIMEOUT! client unresponsive\n");
+                    printList(&database);
 
                     if(fp != NULL) close(fp);
                     removeList(&list);
@@ -444,12 +463,79 @@ int currentState = INITCONNECT;
 
                 break;
             case INITCLOSE:
+                printf("\n Reached INITCLOSE\n");
+                readFdSet = activeFdSet;
+
+
+                timeout_t.tv_sec = 30;
+                timeout_t.tv_usec = 0;
+
+                emptyPackage(&outputBuf);
+
+                outputBuf.seq = outSeq;
+                outputBuf.ack = inputBuf.seq;
+                outSeq++;
+                outputBuf.ack = inputBuf.seq;
+                outputBuf.fin = true;
+                //outputBuf.checkSum = 0; // aleady empty
+                outputBuf.checkSum = checksum(outputBuf);
+
+                if (sendto(sock, &outputBuf, sizeof(Package), 0, (struct sockaddr*) &clientInfo, slen) == -1)
+                {
+                    die("sendto()");
+                }
+                printf("\n OUT FIN PACKAGE!\n");
+                printPackage(outputBuf);
+
+
+                if (select(FD_SETSIZE, &readFdSet, NULL, NULL, &timeout_t) < 0) { // blocking, waits until one the FD is set to ready, will keep the ready ones in readFdSet
+                    perror("Select failed\n");
+                    exit(EXIT_FAILURE);
+                }
+                else if(FD_ISSET(sock, &readFdSet))
+                {
+
+                    if ((recvfrom(sock, &inputBuf, sizeof(Package), 0, (struct sockaddr *) &clientInfo, &slen)) == -1) {
+                        // perror(recvfrom());
+                        die("recvfrom()");
+                    }
+                    printf("\n Input package, 2nd fin?");
+                    printPackage(inputBuf);
+
+
+                    if(viewPackage(inputBuf) == 4) // wait for type 4 for fin
+                    {
+                        if(inputBuf.ack == outputBuf.seq)
+                        {
+                            currentState = CLOSED;
+                        }
+
+
+                    }
+                    else
+                    {
+                        //
+                    }
+
+
+                    // break
+                }
+                else
+                {
+
+                }
+                //currentState = WAITINITCONNECT;
+
 
                 break;
             case WAITINGCLOSE:
 
                 break;
             case CLOSED:
+                // reminder to remove all linked list
+
+                printf("\n WE REACHED CLOSED!");
+                return 0;
 
                 break;
 
