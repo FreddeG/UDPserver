@@ -14,6 +14,7 @@
 #include <unistd.h>
 #include <stdbool.h>
 #include <stdint.h>
+#include <time.h>
 
 typedef struct {
 
@@ -22,7 +23,7 @@ typedef struct {
     bool syn;
     uint64_t seq;
     uint64_t ack;
-    uint16_t timeStamp;
+    uint16_t winSize;
     char data;
     uint64_t checkSum;
 } Package;
@@ -37,5 +38,6 @@ uint8_t viewPackage(Package pack);
 uint64_t initSEQ(void);
 uint64_t checksum (Package pack);
 bool checksumChecker(Package pack);
+void printTime(void);
 
 #endif //UDPSERVER_GENERIC_H

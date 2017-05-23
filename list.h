@@ -8,6 +8,8 @@
 
 #include "Generic.h"
 
+#define ERRORPROBABILITY 30
+#define RELEASEPROBABILITY 0
 //typedef int Data;
 
 /* 1. Struct-definitioner ********************************/
@@ -60,9 +62,11 @@ void addNodeFirst(List *list, Package dataInput);
 int numberOfNodes(List *list);
 int IsListEmpty(List *list);
 void printList(List *mylist);
-Node *ackBySEQRecursive(Node *current, uint64_t *lowestSEQ, int sock, struct sockaddr_in clientInfo, List* database, uint64_t *outSeq);
-
-
+bool ackBySEQ(List *list, uint64_t lowestSEQ, int sock, struct sockaddr_in clientInfo, List* database, uint64_t *outSeq);
+void printData(List *mylist);
+void jail(List *jailList, Package pack, int sock, struct sockaddr_in serverAddr, bool genError);
+Node* freeFromJail(List*list);
 void printPackage(Package pack);
+bool findSeq(List *list, uint64_t seqToFind);
 
 #endif //UDPCLIENT_LIST_H

@@ -29,113 +29,9 @@
 #define WAITINGCLOSE 5
 #define CLOSED 6
 
-#define WINDOWSIZE 3
-
-/*
-typedef struct {
-
-    bool fin;
-    bool reset;
-    bool syn;
-    uint64_t seq;
-    uint64_t ack;
-    uint16_t timeStamp;
-    char data;
-    uint64_t checkSum;
-} Package;
-*/
-
-/*
-typedef struct {
-
-    Package pack;
-    bool ack;
-
-} PackageList;
-
-void die(char *s)
-{
-    perror(s);
-    exit(1);
-}
-
-void printPackage(Package pack)
-{
-    printf("\n fin: %d", pack.fin);
-    printf("\n reset: %d", pack.reset);
-    printf("\n syn: %d", pack.syn);
-    printf("\n seq: %u", pack.seq);
-    printf("\n ack: %u", pack.ack);
-    printf("\n data: %c", pack.data);
-    printf("\n checksum: %u\n", pack.checkSum);
-
-}
-
-// checks the type
-// 0 bad case, (checksum fail)
-// 1 syn (seq, no data, no ack)
-// 2 ack (seq + ack, no data)
-// 3 data (seq + ack + data)
-// 4 fin (fin = true, rest doesn't matter)
-// 5 reset of the package, and returns a corresponding value
-
-uint8_t packageType(Package pack)
-{
-    if(pack.syn == true) return 1; // syn
-
-    if(pack.fin == true) return 4; // last package
-
-    if(pack.reset == true) return 5; // server resets connection
-
-    if(pack.data == '\0') return 2; // ack + seq, no data
-
-    if(pack.data != '\0') return 3; // ack + seq with data, package to read
-
-    printf("\n ERROR!");
-    exit(1);
-
-}
-
-//checks that timestamp and CRC is good, returns packagetype if success, else 0
-uint8_t errorCheckPackage(Package pack)
-{
-    //checks crc/checksum
-
-        // checks timestamp
+#define WINDOWSIZE 10
 
 
-
-
-}
-
-void emptyPackage(Package *packToEmpty)
-{
-    packToEmpty->fin = false;
-    packToEmpty->reset = false;
-    packToEmpty->syn = false;
-    packToEmpty->seq = 0;
-    packToEmpty->ack = 0;
-    packToEmpty->timeStamp = 0;
-    packToEmpty->data = '\0';
-    packToEmpty->checkSum = 0;
-
-}
-
-uint64_t initSEQ(void)
-{
-
-    return 10;
-}
-
-uint16_t getTimeStamp(void)
-{
-    // make sure to compare absolute value between current time and timestamp, check if bigger than x minutes/seconds
-
-    // 0-3 min ok, 57-60 ok check values
-    return 0;
-}
-
-*/
 
 int main(void)
 {
@@ -148,16 +44,29 @@ int main(void)
     List list;
     list.head = NULL;
 
+    uint16_t  count = 0;
+    Node *ptr = NULL;
+
+    uint16_t  packageType = 0;
+
     List database;
     database.head = NULL;
+    List jailList;
+    jailList.head = NULL;
+
+    bool genError = false;
+
 
     FILE *fp = NULL;
+    uint16_t trigger = 0;
 
-    int sock, i, slen = sizeof(clientInfo) , recv_len;
+    srand(time(0)); // seed our rand
+
+    int sock, i, slen = sizeof(clientInfo);
     //char buf[BUFLEN];
 
     //create a UDP socket
-    if ((sock=socket(AF_INET, SOCK_DGRAM, IPPROTO_UDP)) == -1)
+    if ((sock=socket(AF_INET, SOCK_DGRAM, IPPROTO_UDP)) == -1) // initialize socket with UPD setting
     {
         die("socket");
     }
@@ -179,56 +88,51 @@ int main(void)
     FD_ZERO(&activeFdSet); // initializes an empty FDset
     FD_SET(sock, &activeFdSet); // puts socket in the set, activeFDset currently only contains this socket.
 
-int currentState = INITCONNECT;
+    int currentState = INITCONNECT;
 
     while(1) {
         switch (currentState) {
-            case INITCONNECT:
+            case INITCONNECT: // our startup state
                 readFdSet = activeFdSet;
-                // lägg in time envl
 
                 timeout_t.tv_sec = 120;
                 timeout_t.tv_usec = 0;
-
 
                 if (select(FD_SETSIZE, &readFdSet, NULL, NULL, &timeout_t) < 0) { // blocking, waits until one the FD is set to ready, will keep the ready ones in readFdSet
                     perror("Select failed\n");
                     exit(EXIT_FAILURE);
                 }
-                else if(FD_ISSET(sock, &readFdSet))
+                else if(FD_ISSET(sock, &readFdSet)) // if we have recieved on socket
                 {
 
                     if ((recvfrom(sock, &inputBuf, sizeof(Package), 0, (struct sockaddr *) &clientInfo, &slen)) == -1) {
                         // perror(recvfrom());
                         die("recvfrom()");
                     }
+                    printTime();
                     printf("\n Input package, first syn");
                     printPackage(inputBuf);
 
                     if(viewPackage(inputBuf) == 1) // syn
                     {
+
                         emptyPackage(&outputBuf);
                         outputBuf.seq = initSEQ() -895034580135; // just for some variation in seq number
                         outSeq = outputBuf.seq + 1;
                         outputBuf.ack = inputBuf.seq;
                         incLowestSeq = inputBuf.seq + 1;
-
+                        outputBuf.winSize = WINDOWSIZE;
                         outputBuf.checkSum = checksum(outputBuf);
 
-                        if (sendto(sock, &outputBuf, sizeof(Package), 0, (struct sockaddr*) &clientInfo, slen) == -1)
-                        {
-                            die("sendto()");
-                        }
+                        jail(&jailList, outputBuf, sock, clientInfo, genError); //
 
-                        printf("\n Output package, output first syn + ack"); // no syn state but is no data, only seq + ack
-                        printPackage(outputBuf);
 
                         currentState = WAITINITCONNECT;
 
                     }
                     else
                     {
-                       //
+                        //
                     }
 
 
@@ -237,13 +141,31 @@ int currentState = INITCONNECT;
                 else
                 {
                     // want to quit?
-                     break;
+                    break;
 
                 }
                 //currentState = WAITINITCONNECT;
 
                 break;
             case WAITINITCONNECT:
+
+                trigger = rand() %100;
+                if(trigger > RELEASEPROBABILITY)
+                {
+                    Node *ptr = freeFromJail(&jailList);
+                    if(ptr != NULL)
+                    {
+                        if (sendto(sock, &ptr->data, sizeof(Package), 0, (struct sockaddr *) &clientInfo, slen) == -1) {
+                            perror("sendto()");
+                            exit(1);
+                            // die("sendto()"); // fails
+                        }
+                        printTime();
+                        printf("\n-=JAIL RELEASE=-");
+                        printPackage(ptr->data);
+                        free(ptr);
+                    }
+                }
 
 
 
@@ -267,23 +189,19 @@ int currentState = INITCONNECT;
                         // perror(recvfrom());
                         die("recvfrom()");
                     }
+                    printTime();
                     printf("\n Input package, possibly ack on syn +ack ");
                     printPackage(inputBuf);
 
-                    if(viewPackage(inputBuf) == 1) // recieved syn, resend syn+ack
+                    packageType = viewPackage(inputBuf);
+
+                    if(packageType == 1) // recieved syn, resend syn+ack
                     {
-
-                        if (sendto(sock, &outputBuf, sizeof(Package), 0, (struct sockaddr*) &clientInfo, slen) == -1)
-                        {
-                            die("sendto()");
-                        }
-                        printf("\n Output package, was not ack on syn + ack, resending syn+ack");
-                        printPackage(outputBuf);
-
-                        //currentState = WAITINITCONNECT;
+                        printf("\n recieved syn duplicate, resending ack");
+                        jail(&jailList, outputBuf, sock, clientInfo, genError);
 
                     }
-                    else if(viewPackage(inputBuf) == 2) // recieved ack, correct!
+                    else if(packageType == 2) // recieved ack, correct!
                     {
                         //Check if ack correct
                         if(inputBuf.ack != outputBuf.seq || inputBuf.seq != incLowestSeq)
@@ -299,19 +217,9 @@ int currentState = INITCONNECT;
                             printf("\n Input package was ack on syn+ack, success!");
 
                             currentState = CONNECTED;
+                            printf("\n reached connected!");
 
-                            if(fp == NULL)
-                            {
-                                fp = fopen ("file.txt", "w");
-                            }
-                            else
-                            {
-                                return 0; // solve loop somehow to exit when EOF is found
-                            }
-                            if(fp == NULL) // error
-                            {
-                                die("fopen");
-                            }
+
                         }
 
 
@@ -326,17 +234,14 @@ int currentState = INITCONNECT;
                 }
                 else // resend if timeout, syn+ack lost?
                 {
-                    if (sendto(sock, &outputBuf, sizeof(Package), 0, (struct sockaddr*) &clientInfo, slen) == -1)
-                    {
-                        die("sendto()");
-                    }
-                    printf("\n Output package");
-                    printPackage(outputBuf);
+
+                    jail(&jailList, outputBuf, sock, clientInfo, genError);
 
                     break;
 
                 }
                 //currentState = WAITINITCONNECT;
+
 
 
 
@@ -347,10 +252,28 @@ int currentState = INITCONNECT;
                 break;
 
             case CONNECTED:
-                printf("\n reached connected!");
+                printf("\n WAITING FOR %zu", incLowestSeq);
 
 
-                timeout_t.tv_sec = 30; // Time that we listen for acks b4 resending the window.
+                trigger = rand() %100;
+                if(trigger > RELEASEPROBABILITY)
+                {
+                    Node *ptr = freeFromJail(&jailList);
+                    if(ptr != NULL)
+                    {
+                        if (sendto(sock, &ptr->data, sizeof(Package), 0, (struct sockaddr *) &clientInfo, slen) == -1) {
+                            die("sendto()");
+                        }
+                        printTime();
+                        printf("\n-=JAIL RELEASE=-");
+                        printPackage(ptr->data);
+                        free(ptr);
+                        ptr = NULL;
+                    }
+                }
+
+
+                timeout_t.tv_sec = 60; // Time that we listen for acks b4 resending the window.
                 timeout_t.tv_usec = 0;
                 if (select(FD_SETSIZE, &readFdSet, NULL, NULL, &timeout_t) < 0) { // blocking, waits until one the FD is set to ready, will keep the ready ones in readFdSet
                     perror("Select failed\n");
@@ -361,46 +284,38 @@ int currentState = INITCONNECT;
                     if ((recvfrom(sock, &inputBuf, sizeof(Package), 0, (struct sockaddr *) &clientInfo, &slen)) ==
                         -1)
                     {
-                        // perror(recvfrom());
+
                         die("recvfrom()");
                     }
+                    printTime();
                     printf("\n Incoming package");
                     printPackage(inputBuf);
 
-                    if(viewPackage(inputBuf) == 3) // ack + seq + data (we are not using checksum)
+                    packageType = viewPackage(inputBuf);
+
+
+                    if(packageType == 3) // ack + seq + data
                     {
 
                         if(incLowestSeq == inputBuf.seq)  // first expected
                         {
-                            incLowestSeq++;
-                            /*
-                            if(list.head->data.seq + WINDOWSIZE <= inputBuf.ack)// Should not happen!
-                            {
-                                printf("\nDebug: List exeeded");
-                                getchar();
-                                exit(1);
-                            }
-                             */
 
-                            // send ack
-                            //outputBuf.seq
                             addNodeLast(&database, inputBuf); // save to file
                             outputBuf.seq = outSeq;
                             outSeq++;
                             outputBuf.ack = inputBuf.seq;
                             outputBuf.checkSum = 0;
                             outputBuf.checkSum = checksum(outputBuf);
+                            incLowestSeq++;
 
+                            jail(&jailList, outputBuf, sock, clientInfo, genError);
 
-                            if (sendto(sock, &outputBuf, sizeof(Package), 0, (struct sockaddr*) &clientInfo, slen) == -1)
+                            while(ackBySEQ(&list, incLowestSeq, sock, clientInfo, &database, &outSeq) == true)
                             {
-                                die("sendto()");
+                                incLowestSeq++;
                             }
-                            printf("\n Sending ack for expected SEQ");
-                            printPackage(outputBuf);
 
 
-                            list.head = ackBySEQRecursive(list.head, &incLowestSeq, sock, clientInfo, &database, &outSeq);
 
 
 
@@ -408,17 +323,18 @@ int currentState = INITCONNECT;
                         }
                         else if (incLowestSeq > inputBuf.seq) // old package
                         {
-                            //fix resend last outputbuff
-                            if (sendto(sock, &outputBuf, sizeof(Package), 0, (struct sockaddr*) &clientInfo, slen) == -1)
-                            {
-                                die("sendto()");
-                            }
-                            printf("\n Recieved old SEQ Output package");
-                            printPackage(outputBuf);
+                            printf("\n OLD PACKAGE!");
+                            jail(&jailList, outputBuf, sock, clientInfo, genError);
                         }
                         else if(incLowestSeq + WINDOWSIZE + 1 > inputBuf.seq) // package in span
                         {
-                            addNodeLast(&list, inputBuf);
+                            if(findSeq(&list, inputBuf.seq) == false)
+                            {
+                                printf("\n package in span");
+                                addNodeLast(&list, inputBuf);
+                            } else{
+                                printf("\n package already in list");
+                            }
 
                         }
                         else // unmeant condition
@@ -429,7 +345,7 @@ int currentState = INITCONNECT;
                         }
 
                     }
-                    else if(viewPackage(inputBuf) == 4)
+                    else if(packageType == 4)
                     {
                         if(outputBuf.ack + 1 == inputBuf.seq)
                         {
@@ -446,46 +362,56 @@ int currentState = INITCONNECT;
                     }
 
                 }
-                else
+                else // timeout occured
                 {
                     // removes list
-                    printf("\MAJOR TIMEOUT! client unresponsive\n");
-                    printList(&database);
+                    printf("\n MAJOR TIMEOUT! client unresponsive\n");
 
-                    if(fp != NULL) close(fp);
-                    removeList(&list);
                     currentState = CLOSED;
                     // big timeout
                 }
 
 
-               // printList(&list);
+
 
                 break;
             case INITCLOSE:
+                trigger = rand() %100;
+                if(trigger > RELEASEPROBABILITY)
+                {
+                    Node *ptr = freeFromJail(&jailList);
+                    if(ptr != NULL)
+                    {
+                        if (sendto(sock, &ptr->data, sizeof(Package), 0, (struct sockaddr *) &clientInfo, slen) == -1) {
+                            perror("sendto()");
+                            exit(1);
+                            // die("sendto()"); // fails
+                        }
+                        printf("\n-=JAIL RELEASE=-");
+                        printPackage(ptr->data);
+                        free(ptr);
+                        ptr = NULL;
+                    }
+                }
+
                 printf("\n Reached INITCLOSE\n");
                 readFdSet = activeFdSet;
 
 
-                timeout_t.tv_sec = 30;
+                timeout_t.tv_sec = 10;
                 timeout_t.tv_usec = 0;
 
                 emptyPackage(&outputBuf);
 
                 outputBuf.seq = outSeq;
                 outputBuf.ack = inputBuf.seq;
-                outSeq++;
                 outputBuf.ack = inputBuf.seq;
                 outputBuf.fin = true;
                 //outputBuf.checkSum = 0; // aleady empty
                 outputBuf.checkSum = checksum(outputBuf);
+                jail(&jailList, outputBuf, sock, clientInfo, genError);
 
-                if (sendto(sock, &outputBuf, sizeof(Package), 0, (struct sockaddr*) &clientInfo, slen) == -1)
-                {
-                    die("sendto()");
-                }
-                printf("\n OUT FIN PACKAGE!\n");
-                printPackage(outputBuf);
+
 
 
                 if (select(FD_SETSIZE, &readFdSet, NULL, NULL, &timeout_t) < 0) { // blocking, waits until one the FD is set to ready, will keep the ready ones in readFdSet
@@ -499,6 +425,7 @@ int currentState = INITCONNECT;
                         // perror(recvfrom());
                         die("recvfrom()");
                     }
+                    printTime();
                     printf("\n Input package, 2nd fin?");
                     printPackage(inputBuf);
 
@@ -522,6 +449,7 @@ int currentState = INITCONNECT;
                 }
                 else
                 {
+                    jail(&jailList, outputBuf, sock, clientInfo, genError);
 
                 }
                 //currentState = WAITINITCONNECT;
@@ -535,40 +463,15 @@ int currentState = INITCONNECT;
                 // reminder to remove all linked list
 
                 printf("\n WE REACHED CLOSED!");
+                //printList(&database);
+                printData(&database);
+                printTime();
                 return 0;
 
                 break;
 
         }
     }
-/*
-    //keep listening for data
-    while(1)
-    {
-        printf("Waiting for data...");
-        fflush(stdout);
-
-        //try to receive some data, this is a blocking call
-        if ((recv_len = recvfrom(s, &buf, sizeof(Package), 0, (struct sockaddr *) &clientInfo, &slen)) == -1)
-        {
-           // perror(recvfrom());
-            die("recvfrom()");
-        }
 
 
-        //print details of the client/peer and the data received
-        printf("Received packet from %s:%d\n", inet_ntoa(clientInfo.sin_addr), ntohs(clientInfo.sin_port));
-        printf("Data: %d %d %s\n" , buf.seq, buf.ack, buf.data);
-
-
-        //now reply the client with the same data
-        if (sendto(s, &buf, sizeof(Package), 0, (struct sockaddr*) &clientInfo, slen) == -1)
-        {
-            die("sendto()");
-        }
-    }
-
-    close(s);
-    */
-    return 0;
 }

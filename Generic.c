@@ -64,7 +64,7 @@ void emptyPackage(Package *packToEmpty)
     packToEmpty->syn = false;
     packToEmpty->seq = 0;
     packToEmpty->ack = 0;
-    packToEmpty->timeStamp = 0;
+    packToEmpty->winSize = 0;
     packToEmpty->data = '\0';
     packToEmpty->checkSum = 0;
 
@@ -85,7 +85,7 @@ void printPackage(Package pack)
 uint8_t viewPackage(Package pack)
 {
 
-    if(checksum(pack)) // checksum
+    if(checksumChecker(pack)) // checksum
     {
         if(pack.syn == true) return 1; // syn
 
@@ -103,6 +103,8 @@ uint8_t viewPackage(Package pack)
     }
     else
     {
+        printf("\n !!BADCHECKSUM!!");
+        fflush(stdout);
         return 0;
     }
 
@@ -124,6 +126,14 @@ uint64_t initSEQ(void)
     uint64_t milliseconds = te.tv_sec*1000LL + te.tv_usec/1000; // caculate milliseconds
     // printf("milliseconds: %lld\n", milliseconds);
     return milliseconds;
+}
+
+void printTime(void)
+{
+    char buff[100];
+    time_t currTime = time (0);
+    strftime (buff, 100, "%H:%M:%S.000", localtime (&currTime));
+    printf ("\n\n%s", buff);
 }
 
 
